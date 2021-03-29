@@ -22,8 +22,18 @@ type ExampleReply struct {
 	Y int
 }
 
-// Add your RPC definitions here.
+const (
+	Map = "Map"
+	Reduce = "Reduce"
+)
 
+// Add your RPC definitions here.
+type Args struct {
+	Phase string
+	N int
+	Filenames []string
+
+}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
