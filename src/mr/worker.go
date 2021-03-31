@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -34,52 +35,92 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-
 	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
 	for {
-
+		reply := CallTask()
 	}
 }
 
-func doMap(filename string, nMap int, nReduce int, mapf func(string, string) []KeyValue) {
-	intermediate := make([]KeyValue, 0)
+func doMap(filename string, nMap int, nReduce int, mapf func(string, string) []KeyValue) error {
+	intermediate := make(map[int][]KeyValue)
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Fatalf("cannot open %v", filename)
+		return err
 	}
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
 		log.Fatalf("cannot read %v", filename)
+		return err
 	}
-	file.Close()
+	_ = file.Close()
 	kva := mapf(filename, string(content))
-	intermediate = append(intermediate, kva...)
+	for _, kv := range kva {
+		partion := ihash(kv.Key) % nReduce
+		intermediate[partion] = append(intermediate[partion], kv)
+	}
+	//write to file
+	for p, ls := range intermediate {
+		file, err := os.Create(intermediateFilename(nMap, p))
+		if err != nil {
+			log.Fatalf("cannot create %s", file.Name())
+			return err
+		}
+		enc := json.NewEncoder(file)
+		for _, kv := range ls {
+			_ = enc.Encode(&kv)
+		}
+		file.Close()
+	}
+	return nil
 }
 
-//
-// example function to show how to make an RPC call to the coordinator.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func CallExample() {
+func doReduce(nReduce int, reducef func(string, []string) string) error {
+	buf := make(map[string][]string)
+	files, _ := ioutil.ReadDir("mr-tmp")
+	for _, file := range files {
+		fh, err := os.Open(file.Name())
+		if err != nil {
+			return err
+		}
+		dec := json.NewDecoder(fh)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			buf[kv.Key] = append(buf[kv.Key], kv.Value)
+		}
+	}
 
-	// declare an argument structure.
-	args := ExampleArgs{}
+	//output
+	outFile, err := os.Create(outFilename(nReduce))
+	if err != nil {
+		return err
+	}
+	for k, ls := range buf {
+		v := reducef(k, ls)
+		fmt.Fprintf(outFile, "%v %v\n", k, v)
+	}
+	outFile.Close()
+	return nil
+}
 
-	// fill in the argument(s).
-	args.X = 99
+func intermediateFilename(nMap, nReduce int) string {
+	return fmt.Sprintf("mr-%d-%d", nMap, nReduce)
+}
 
-	// declare a reply structure.
-	reply := ExampleReply{}
+func outFilename(nReduce int) string {
+	return fmt.Sprintf("mr-out-%d", nReduce)
+}
 
+
+func CallTask() TaskReply {
+	args := TaskArgs{}
+	reply := TaskReply{}
 	// send the RPC request, wait for the reply.
-	call("Coordinator.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
+	call("Coordinator.GetTask", &args, &reply)
+	return reply
 }
 
 //
