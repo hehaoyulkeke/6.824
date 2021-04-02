@@ -1,6 +1,10 @@
 package mr
 
-import "log"
+import (
+	"log"
+	"sync"
+	"time"
+)
 import "net"
 import "os"
 import "net/rpc"
@@ -9,7 +13,13 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-
+	files []string
+	nReduce int
+	mapTasks chan int
+	reduceTasks chan int
+	mapSuc map[int]bool
+	reduceSuc map[int]bool
+	mu sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -19,8 +29,55 @@ type Coordinator struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (c *Coordinator) GetTask(args *TaskArgs, reply *TaskReply) error {
+func (c *Coordinator) GetTask(args *struct{}, reply *TaskReply) error {
+	if len(c.mapSuc) == len(c.files) {
+		// deliver reduce task
+		n := <- c.reduceTasks
+		reply.N = n
+		reply.NReduce = c.nReduce
+		reply.Filename = c.files[n]
+		reply.Phase = Reduce
+		go c.mayRetry(n, Reduce)
+		return nil
+	} else {
+		// deliver map task
+		n := <- c.mapTasks
+		reply.N = n
+		reply.Phase = Map
+		go c.mayRetry(n, Map)
+		return nil
+	}
+}
+
+func (c *Coordinator) DoneTask(args *DoneTaskArgs, reply *struct{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch args.Phase {
+	case Map:
+		c.mapSuc[args.N] = true
+	case Reduce:
+		c.reduceSuc[args.N] = true
+	}
 	return nil
+}
+
+func (c *Coordinator) mayRetry(n int, phase string) {
+	time.Sleep(10*time.Second)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch phase {
+	case Map:
+		if _, ok := c.mapSuc[n]; !ok {
+			//map task timeout fail
+			c.mapTasks <- n
+		}
+	case Reduce:
+		if _, ok := c.reduceSuc[n]; !ok {
+			//reduce task timeout fail
+			c.reduceTasks <- n
+		}
+	}
 }
 
 
@@ -45,12 +102,10 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := true
-
 	// Your code here.
-
-
-	return ret
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.reduceSuc) == c.nReduce
 }
 
 //
@@ -60,7 +115,18 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
-
+	mCh := make(chan int, len(files))
+	for i := range files {
+		mCh <- i
+	}
+	rCh := make(chan int, nReduce)
+	for i:=0; i<nReduce; i++ {
+		rCh <- i
+	}
+	c.mapTasks = mCh
+	c.reduceTasks = rCh
+	c.mapSuc = make(map[int]bool)
+	c.reduceSuc = make(map[int]bool)
 	// Your code here.
 
 

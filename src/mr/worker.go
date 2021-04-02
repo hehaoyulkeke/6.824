@@ -37,7 +37,17 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	// Your worker implementation here.
 	for {
-		reply := CallTask()
+		reply := callTask()
+		var err error
+		switch reply.Phase {
+		case Map:
+			err = doMap(reply.Filename, reply.N, reply.NReduce, mapf)
+		case Reduce:
+			err = doReduce(reply.N, reducef)
+		}
+		if err != nil {
+			replyDoneTask(reply.N, reply.Phase)
+		}
 	}
 }
 
@@ -115,12 +125,18 @@ func outFilename(nReduce int) string {
 }
 
 
-func CallTask() TaskReply {
-	args := TaskArgs{}
+func callTask() TaskReply {
+	args := struct{}{}
 	reply := TaskReply{}
 	// send the RPC request, wait for the reply.
 	call("Coordinator.GetTask", &args, &reply)
 	return reply
+}
+
+func replyDoneTask(n int, phase string) {
+	args := DoneTaskArgs{n, phase}
+	reply := struct{}{}
+	call("Coordinator.DoneTask", &args, &reply)
 }
 
 //

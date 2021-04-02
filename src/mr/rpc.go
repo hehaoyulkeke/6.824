@@ -16,13 +16,17 @@ const (
 )
 
 // Add your RPC definitions here.
-type TaskArgs struct {
+type DoneTaskArgs struct {
+	N int
+	Phase string
+
 }
 
 type TaskReply struct {
 	Phase string
 	N int
-	Filenames []string
+	NReduce int
+	Filename string
 }
 
 // Cook up a unique-ish UNIX-domain socket name
