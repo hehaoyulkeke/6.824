@@ -30,12 +30,13 @@ type Coordinator struct {
 // the RPC argument and reply types are defined in rpc.go.
 //
 func (c *Coordinator) GetTask(args *struct{}, reply *TaskReply) error {
-	if len(c.mapSuc) == len(c.files) {
+	c.mu.Lock()
+	mapSucCnt := len(c.mapSuc)
+	c.mu.Unlock()
+	if mapSucCnt == len(c.files) {
 		// deliver reduce task
 		n := <- c.reduceTasks
 		reply.N = n
-		reply.NReduce = c.nReduce
-		reply.Filename = c.files[n]
 		reply.Phase = Reduce
 		go c.mayRetry(n, Reduce)
 		return nil
@@ -43,6 +44,8 @@ func (c *Coordinator) GetTask(args *struct{}, reply *TaskReply) error {
 		// deliver map task
 		n := <- c.mapTasks
 		reply.N = n
+		reply.Filename = c.files[n]
+		reply.NReduce = c.nReduce
 		reply.Phase = Map
 		go c.mayRetry(n, Map)
 		return nil
@@ -105,7 +108,8 @@ func (c *Coordinator) Done() bool {
 	// Your code here.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.reduceSuc) == c.nReduce
+	ret := len(c.reduceSuc) == c.nReduce
+	return ret
 }
 
 //
@@ -127,9 +131,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.reduceTasks = rCh
 	c.mapSuc = make(map[int]bool)
 	c.reduceSuc = make(map[int]bool)
+	c.files = files
+	c.nReduce = nReduce
 	// Your code here.
-
-
 	c.server()
 	return &c
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
+	"strings"
 )
 import "log"
 import "net/rpc"
@@ -45,7 +47,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		case Reduce:
 			err = doReduce(reply.N, reducef)
 		}
-		if err != nil {
+		if err == nil {
 			replyDoneTask(reply.N, reply.Phase)
 		}
 	}
@@ -89,23 +91,28 @@ func doReduce(nReduce int, reducef func(string, []string) string) error {
 	buf := make(map[string][]string)
 	files, _ := ioutil.ReadDir("mr-tmp")
 	for _, file := range files {
-		fh, err := os.Open(file.Name())
-		if err != nil {
-			return err
-		}
-		dec := json.NewDecoder(fh)
-		for {
-			var kv KeyValue
-			if err := dec.Decode(&kv); err != nil {
-				break
+		ls := strings.Split(file.Name(), "-")
+		if ls[len(ls)-1] == fmt.Sprintf("%d", nReduce) {
+			fh, err := os.Open(path.Join("mr-tmp", file.Name()))
+			if err != nil {
+				log.Fatal(err)
+				return err
 			}
-			buf[kv.Key] = append(buf[kv.Key], kv.Value)
+			dec := json.NewDecoder(fh)
+			for {
+				var kv KeyValue
+				if err := dec.Decode(&kv); err != nil {
+					break
+				}
+				buf[kv.Key] = append(buf[kv.Key], kv.Value)
+			}
 		}
 	}
 
 	//output
 	outFile, err := os.Create(outFilename(nReduce))
 	if err != nil {
+		log.Fatal(err)
 		return err
 	}
 	for k, ls := range buf {
@@ -117,7 +124,7 @@ func doReduce(nReduce int, reducef func(string, []string) string) error {
 }
 
 func intermediateFilename(nMap, nReduce int) string {
-	return fmt.Sprintf("mr-%d-%d", nMap, nReduce)
+	return fmt.Sprintf("mr-tmp/mr-%d-%d", nMap, nReduce)
 }
 
 func outFilename(nReduce int) string {
