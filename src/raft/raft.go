@@ -19,6 +19,7 @@ package raft
 
 import (
 	"math/rand"
+	"sort"
 
 	//	"bytes"
 	"sync"
@@ -176,14 +177,14 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
 	// Your code here (2B).
-
-
-	return index, term, isLeader
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term := rf.currentTerm
+	index := len(rf.log)
+	entry := LogEntry{term, index, command}
+	rf.log = append(rf.log, entry)
+	return index, term, rf.role == Leader
 }
 
 //
@@ -243,7 +244,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
-	//go rf.applyLoop()
+	go rf.applyLoop()
 	rf.becomeFollower(0)
 	go rf.electionLoop()
 
@@ -286,10 +287,13 @@ func (rf *Raft) becomeLeader() {
 func (rf *Raft) electionLoop() {
 	for {
 		<- rf.electionTimer.C
+		rf.mu.Lock()
 		rf.electionTimer.Reset(getRandElectTimeout())
 		if rf.role == Leader {
+			rf.mu.Unlock()
 			continue
 		}
+		rf.mu.Unlock()
 
 		rf.mu.Lock()
 		rf.becomeCandidate()
@@ -310,7 +314,9 @@ func (rf *Raft) electionLoop() {
 			go func(peer int) {
 				if ok := rf.sendRequestVote(peer, &args, &reply); ok {
 					DPrintf("%v send request vote RPC succ", rf)
-					grantCh <- struct{}{}
+					if reply.VoteGranted {
+						grantCh <- struct{}{}
+					}
 				}
 			}(peer)
 		}
@@ -338,18 +344,39 @@ func (rf *Raft) pingLoop() {
 			return
 		}
 		// append entries to each Peer except itself
-		args := AppendEntriesArgs{
-			Term:         rf.currentTerm,
-			LeaderId:     rf.me,
-		}
 		for peer := range rf.peers {
 			if peer == rf.me {
 				continue
+			}
+			prevLogIndex := rf.nextIndex[peer] - 1
+			args := AppendEntriesArgs{
+				Term:         rf.currentTerm,
+				LeaderId:     rf.me,
+				PrevLogIndex: prevLogIndex,
+				PrevLogTerm:  rf.log[prevLogIndex].Term,
+				Entries:      rf.log[rf.nextIndex[peer]:], // start from next to the end
+				LeaderCommit: rf.commitIndex,
 			}
 			reply := AppendEntriesReply{}
 			go func(peer int) {
 				if ok := rf.sendAppendEntries(peer, &args, &reply); ok {
 					DPrintf("%v send append RPC succ", rf)
+					if reply.Success {
+						rf.matchIndex[id] = args.PrevLogIndex + len(args.Entries) // do not depend on len(rf.log)
+						rf.nextIndex[id] = rf.matchIndex[id] + 1
+
+						majorityIndex := getMajoritySameIndex(rf.matchIndex)
+						if rf.log[majorityIndex].Term == rf.currentTerm && majorityIndex > rf.commitIndex {
+							rf.commitIndex = majorityIndex
+							DPrintf("%v advance commit index to %v", rf, rf.commitIndex)
+						}
+					} else {
+						prevIndex := args.PrevLogIndex
+						for prevIndex > 0 && rf.log[prevIndex].Term == args.PrevLogTerm {
+							prevIndex--
+						}
+						rf.nextIndex[id] = prevIndex + 1
+					}
 				}
 			}(peer)
 		}
@@ -361,13 +388,28 @@ func (rf *Raft) pingLoop() {
 	}
 }
 
+func getMajoritySameIndex(matchIndex []int) int {
+	tmp := make([]int, len(matchIndex))
+	copy(tmp, matchIndex)
+
+	sort.Sort(sort.Reverse(sort.IntSlice(tmp)))
+
+	idx := len(tmp) / 2
+	return tmp[idx]
+}
+
 func (rf *Raft) applyLoop() {
 	for {
 		time.Sleep(10 * time.Millisecond)
 		rf.mu.Lock()
 		for rf.lastApplied < rf.commitIndex {
 			rf.lastApplied++
-			//rf.apply(rf.lastApplied, rf.log[rf.lastApplied]) // put to applyChan in the function
+			entry := rf.log[rf.lastApplied]
+			rf.applyCh <- ApplyMsg{
+				CommandValid:  true,
+				Command:       entry.Command,
+				CommandIndex:  rf.lastApplied,
+			}
 		}
 		rf.mu.Unlock()
 	}

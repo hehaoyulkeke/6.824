@@ -39,6 +39,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else {
 		reply.VoteGranted = false
 	}
+	rf.becomeFollower(args.Term)
 	DPrintf("%v recv request vote", rf)
 }
 
@@ -78,6 +79,24 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term < rf.currentTerm {
 		reply.Success = false
 		return
+	}
+	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.Success = false
+		return
+	}
+
+	// delete all conflict entries
+	var i int
+	for i=args.PrevLogIndex+1; i<len(rf.log); i++ {
+		if rf.log[i].Term != args.Entries[i-args.PrevLogIndex-1].Term {
+			break
+		}
+	}
+	rf.log = rf.log[min(i+1, len(rf.log)-1):]
+	// append new entries
+	rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
 	}
 	reply.Success = true
 	DPrintf("%v recv append", rf)
