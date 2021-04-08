@@ -36,11 +36,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	if (rf.votedFor == None || rf.votedFor == args.CandidateId) && rf.isLogUp2Date(args.LastLogTerm, args.LastLogIndex) {
 		reply.VoteGranted = true
+		rf.votedFor = args.CandidateId
 	} else {
 		reply.VoteGranted = false
 	}
-	rf.becomeFollower(args.Term)
 	DPrintf("%v recv request vote", rf)
+	if args.Term > rf.currentTerm {
+		rf.becomeFollower(args.Term)
+	}
 }
 
 func (rf *Raft) isLogUp2Date(term int, index int) bool {
@@ -75,6 +78,7 @@ type AppendEntriesReply struct {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	rf.votedFor = None
 	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm {
 		reply.Success = false

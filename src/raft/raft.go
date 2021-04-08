@@ -268,7 +268,7 @@ func (rf *Raft) becomeFollower(term int) {
 }
 
 func getRandElectTimeout() time.Duration {
-	return time.Duration(150+rand.Int31n(150))*time.Millisecond
+	return time.Duration(pingInterValBase+rand.Int31n(pingInterValOffset))*time.Millisecond
 }
 
 func (rf *Raft) becomeLeader() {
@@ -361,22 +361,22 @@ func (rf *Raft) pingLoop() {
 			go func(peer int) {
 				if ok := rf.sendAppendEntries(peer, &args, &reply); ok {
 					DPrintf("%v send append RPC succ", rf)
-					if reply.Success {
-						rf.matchIndex[id] = args.PrevLogIndex + len(args.Entries) // do not depend on len(rf.log)
-						rf.nextIndex[id] = rf.matchIndex[id] + 1
-
-						majorityIndex := getMajoritySameIndex(rf.matchIndex)
-						if rf.log[majorityIndex].Term == rf.currentTerm && majorityIndex > rf.commitIndex {
-							rf.commitIndex = majorityIndex
-							DPrintf("%v advance commit index to %v", rf, rf.commitIndex)
-						}
-					} else {
-						prevIndex := args.PrevLogIndex
-						for prevIndex > 0 && rf.log[prevIndex].Term == args.PrevLogTerm {
-							prevIndex--
-						}
-						rf.nextIndex[id] = prevIndex + 1
-					}
+					//if reply.Success {
+					//	rf.matchIndex[id] = args.PrevLogIndex + len(args.Entries) // do not depend on len(rf.log)
+					//	rf.nextIndex[id] = rf.matchIndex[id] + 1
+					//
+					//	majorityIndex := getMajoritySameIndex(rf.matchIndex)
+					//	if rf.log[majorityIndex].Term == rf.currentTerm && majorityIndex > rf.commitIndex {
+					//		rf.commitIndex = majorityIndex
+					//		DPrintf("%v advance commit index to %v", rf, rf.commitIndex)
+					//	}
+					//} else {
+					//	prevIndex := args.PrevLogIndex
+					//	for prevIndex > 0 && rf.log[prevIndex].Term == args.PrevLogTerm {
+					//		prevIndex--
+					//	}
+					//	rf.nextIndex[id] = prevIndex + 1
+					//}
 				}
 			}(peer)
 		}

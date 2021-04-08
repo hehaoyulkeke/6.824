@@ -28,7 +28,11 @@ const (
 
 const None = -1
 
-const heartbeatInterval = 50 * time.Millisecond
+const (
+	heartbeatInterval = 50 * time.Millisecond
+	pingInterValBase = 150
+	pingInterValOffset = 150
+)
 
 func min(a, b int) int {
 	if a < b {
