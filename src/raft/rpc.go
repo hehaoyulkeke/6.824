@@ -73,36 +73,33 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term int
 	Success bool
+	ConflictIndex int
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	rf.votedFor = None
 	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm {
 		reply.Success = false
 		return
 	}
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		reply.Success = false
-		return
-	}
+		var i int
+		for i=len(rf.log)-1; i>=0 && rf.log[i].Term != args.PrevLogTerm; i-- {
 
-	// delete all conflict entries
-	var i int
-	for i=args.PrevLogIndex+1; i<len(rf.log); i++ {
-		if rf.log[i].Term != args.Entries[i-args.PrevLogIndex-1].Term {
-			break
 		}
+		reply.ConflictIndex = i+1
+		reply.Success = false
+	} else {
+		// delete all conflict entries
+		// append new entries
+		rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+		if args.LeaderCommit > rf.commitIndex {
+			rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
+		}
+		reply.Success = true
 	}
-	rf.log = rf.log[min(i+1, len(rf.log)-1):]
-	// append new entries
-	rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
-	if args.LeaderCommit > rf.commitIndex {
-		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
-	}
-	reply.Success = true
 	DPrintf("%v recv append", rf)
 	rf.becomeFollower(args.Term)
 }

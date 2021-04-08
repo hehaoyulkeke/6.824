@@ -180,11 +180,16 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// Your code here (2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	term := rf.currentTerm
-	index := len(rf.log)
-	entry := LogEntry{term, index, command}
-	rf.log = append(rf.log, entry)
-	return index, term, rf.role == Leader
+	if rf.role != Leader {
+		return len(rf.log)-1, rf.currentTerm, false
+	} else {
+		term := rf.currentTerm
+		index := len(rf.log)
+		entry := LogEntry{term, index, command}
+		rf.log = append(rf.log, entry)
+		DPrintf("%v start a command", rf)
+		return index, term, true
+	}
 }
 
 //
@@ -361,22 +366,22 @@ func (rf *Raft) pingLoop() {
 			go func(peer int) {
 				if ok := rf.sendAppendEntries(peer, &args, &reply); ok {
 					DPrintf("%v send append RPC succ", rf)
-					//if reply.Success {
-					//	rf.matchIndex[id] = args.PrevLogIndex + len(args.Entries) // do not depend on len(rf.log)
-					//	rf.nextIndex[id] = rf.matchIndex[id] + 1
-					//
-					//	majorityIndex := getMajoritySameIndex(rf.matchIndex)
-					//	if rf.log[majorityIndex].Term == rf.currentTerm && majorityIndex > rf.commitIndex {
-					//		rf.commitIndex = majorityIndex
-					//		DPrintf("%v advance commit index to %v", rf, rf.commitIndex)
-					//	}
-					//} else {
-					//	prevIndex := args.PrevLogIndex
-					//	for prevIndex > 0 && rf.log[prevIndex].Term == args.PrevLogTerm {
-					//		prevIndex--
-					//	}
-					//	rf.nextIndex[id] = prevIndex + 1
-					//}
+					if reply.Success {
+						rf.matchIndex[peer] = args.PrevLogIndex + len(args.Entries) // do not depend on len(rf.log)
+						rf.nextIndex[peer] = rf.matchIndex[peer] + 1
+						majorityIndex := getMajoritySameIndex(rf.matchIndex)
+						if rf.log[majorityIndex].Term == rf.currentTerm && majorityIndex > rf.commitIndex {
+							rf.commitIndex = majorityIndex
+							DPrintf("%v advance commit index to %v", rf, rf.commitIndex)
+						}
+						DPrintf("succ next %v", rf.nextIndex)
+					} else {
+						if reply.ConflictIndex != 0 {
+							rf.nextIndex[peer] = reply.ConflictIndex
+						}
+						DPrintf("fail next %v", rf.nextIndex)
+					}
+					DPrintf("now next %v", rf.nextIndex)
 				}
 			}(peer)
 		}
@@ -391,9 +396,7 @@ func (rf *Raft) pingLoop() {
 func getMajoritySameIndex(matchIndex []int) int {
 	tmp := make([]int, len(matchIndex))
 	copy(tmp, matchIndex)
-
 	sort.Sort(sort.Reverse(sort.IntSlice(tmp)))
-
 	idx := len(tmp) / 2
 	return tmp[idx]
 }
