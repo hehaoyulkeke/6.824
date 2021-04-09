@@ -351,6 +351,8 @@ func (rf *Raft) pingLoop() {
 		// append entries to each Peer except itself
 		for peer := range rf.peers {
 			if peer == rf.me {
+				rf.nextIndex[peer] = len(rf.log)
+				rf.matchIndex[peer] = len(rf.log) - 1
 				continue
 			}
 			prevLogIndex := rf.nextIndex[peer] - 1
@@ -374,14 +376,11 @@ func (rf *Raft) pingLoop() {
 							rf.commitIndex = majorityIndex
 							DPrintf("%v advance commit index to %v", rf, rf.commitIndex)
 						}
-						DPrintf("succ next %v", rf.nextIndex)
 					} else {
-						if reply.ConflictIndex != 0 {
+						if reply.ConflictIndex != -1 {
 							rf.nextIndex[peer] = reply.ConflictIndex
 						}
-						DPrintf("fail next %v", rf.nextIndex)
 					}
-					DPrintf("now next %v", rf.nextIndex)
 				}
 			}(peer)
 		}

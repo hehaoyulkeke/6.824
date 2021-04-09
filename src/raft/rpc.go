@@ -80,13 +80,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	reply.Term = rf.currentTerm
+	reply.ConflictIndex = -1
 	if args.Term < rf.currentTerm {
 		reply.Success = false
 		return
 	}
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		var i int
-		for i=len(rf.log)-1; i>=0 && rf.log[i].Term != args.PrevLogTerm; i-- {
+		for i=len(rf.log)-1; i>=1 && rf.log[i].Term != args.PrevLogTerm; i-- {
 
 		}
 		reply.ConflictIndex = i+1
