@@ -16,8 +16,8 @@ func DPrintf(format string, a ...interface{}) {
 }
 
 func (rf *Raft) String() string {
-	return fmt.Sprintf("[%s:%d;Term:%d;Log:%v;logLen:%v;Commit:%v;Apply:%v; next: %v]",
-		rf.role, rf.me, rf.currentTerm, rf.log, len(rf.log)-1, rf.commitIndex, rf.lastApplied, rf.nextIndex)
+	return fmt.Sprintf("[%s:%d;Term:%d;Log:%v;logLen:%v;Commit:%v;Apply:%v]",
+		rf.state, rf.me, rf.currentTerm, rf.log, len(rf.log)-1, rf.commitIndex, rf.lastApplied)
 }
 
 const (
